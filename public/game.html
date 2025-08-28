@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brain Reaction Speed Game - Game Room</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Connection Status -->
+        <div id="connection-status" class="status-bar">
+            <span id="connection-text">Connecting...</span>
+        </div>
+
+        <!-- Game Lobby Screen -->
+        <div id="game-lobby-screen" class="screen active">
+            <div class="container">
+                <div class="header">
+                    <h2>Game Lobby</h2>
+                    <div class="user-info">
+                        <span>Player: <span id="current-username"></span></span>
+                        <button id="back-to-menu-btn" class="btn-secondary">Back to Menu</button>
+                    </div>
+                </div>
+                
+                <div class="lobby-players">
+                    <div class="player-card">
+                        <h3 id="player1-name">Player 1</h3>
+                        <div id="player1-status" class="status">Waiting...</div>
+                    </div>
+                    <div class="vs">VS</div>
+                    <div class="player-card">
+                        <h3 id="player2-name">Player 2</h3>
+                        <div id="player2-status" class="status">Waiting...</div>
+                    </div>
+                </div>
+                
+                <div class="lobby-controls">
+                    <button id="ready-btn" class="btn-primary">Ready</button>
+                    <div id="lobby-status" class="lobby-status">Waiting for players to be ready...</div>
+                </div>
+                
+                <button id="leave-lobby-btn" class="btn-secondary">Leave Lobby</button>
+            </div>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="game-screen" class="screen">
+            <div class="container">
+                <div class="game-area">
+                    <div id="game-instructions" class="instructions">
+                        <h2>Get Ready!</h2>
+                        <p>Wait for the background to change color, then click the button as fast as you can!</p>
+                        <p><strong>Warning:</strong> If you click before the color changes, you lose!</p>
+                    </div>
+                    
+                    <div id="game-arena" class="game-arena">
+                        <button id="reaction-btn" class="reaction-btn" disabled>
+                            Click When Color Changes!
+                        </button>
+                    </div>
+                    
+                    <div id="game-timer" class="timer">Game will start soon...</div>
+                    
+                    <div class="game-actions">
+                        <button id="forfeit-btn" class="btn-secondary">Forfeit Game</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Game Result Screen -->
+        <div id="result-screen" class="screen">
+            <div class="container">
+                <div class="result-content">
+                    <h2 id="result-title">Game Result</h2>
+                    <div id="result-message" class="result-message"></div>
+                    <div id="result-stats" class="result-stats"></div>
+                    
+                    <div class="result-buttons">
+                        <button id="play-again-btn" class="btn-primary">Play Again</button>
+                        <button id="back-to-main-btn" class="btn-secondary">Back to Main Menu</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
