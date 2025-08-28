@@ -21,11 +21,6 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-// Route for game page
-app.get('/game.html', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'game.html'));
-});
-
 // In-memory storage (replace with database in production)
 const users = new Map();
 const activeUsers = new Map();
@@ -34,6 +29,23 @@ const gameHistory = new Map();
 
 // JWT Secret
 const JWT_SECRET = 'your-secret-key-change-in-production';
+
+// Auth Middleware
+const protect = (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) {
+    return res.status(401).json({ error: 'Not authorized, no token' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    res.status(401).json({ error: 'Not authorized, token failed' });
+  }
+};
+
 
 // Authentication endpoints
 app.post('/api/register', async (req, res) => {
@@ -63,7 +75,7 @@ app.post('/api/register', async (req, res) => {
     
     gameHistory.set(userId, []);
     
-    const token = jwt.sign({ userId, username }, JWT_SECRET);
+    const token = jwt.sign({ userId, username }, JWT_SECRET, { expiresIn: '1h' });
     res.json({ token, userId, username });
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
@@ -88,12 +100,24 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ error: 'Invalid credentials' });
     }
     
-    const token = jwt.sign({ userId: user.id, username }, JWT_SECRET);
+    const token = jwt.sign({ userId: user.id, username }, JWT_SECRET, { expiresIn: '1h' });
     res.json({ token, userId: user.id, username });
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+app.get('/api/me', protect, (req, res) => {
+  const user = Array.from(users.values()).find(u => u.id === req.user.userId);
+  if (!user) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+  res.json({
+    userId: user.id,
+    username: user.username,
+  });
+});
+
 
 app.get('/api/users', (req, res) => {
   const userList = Array.from(users.values()).map(user => ({
@@ -130,17 +154,29 @@ app.get('/api/user/:userId/stats', (req, res) => {
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
   
-  socket.on('user-login', (userData) => {
-    activeUsers.set(userData.userId, {
-      socketId: socket.id,
-      username: userData.username,
-      userId: userData.userId,
-      status: 'online'
-    });
-    socket.userId = userData.userId;
-    
-    // Broadcast updated user list
-    io.emit('users-update', Array.from(activeUsers.values()));
+  socket.on('user-login', (data) => {
+    try {
+      const { token } = data;
+      if (!token) return;
+
+      const decoded = jwt.verify(token, JWT_SECRET);
+      const user = Array.from(users.values()).find(u => u.id === decoded.userId);
+
+      if(user){
+        activeUsers.set(user.id, {
+        socketId: socket.id,
+        username: user.username,
+        userId: user.id,
+        status: 'online'
+      });
+      socket.userId = user.id;
+      
+      // Broadcast updated user list
+      io.emit('users-update', Array.from(activeUsers.values()));
+      }
+    } catch (error) {
+      console.error("Login failed", error);
+    }
   });
   
   socket.on('send-game-request', (data) => {
@@ -336,7 +372,7 @@ function startGame(roomId) {
 
 function endGame(roomId, winnerId, reason) {
   const room = gameRooms.get(roomId);
-  if (!room) return;
+  if (!room || room.status === 'finished') return;
   
   room.status = 'finished';
   room.winner = winnerId;
@@ -346,9 +382,11 @@ function endGame(roomId, winnerId, reason) {
   
   // Update user stats
   const winnerUser = Array.from(users.values()).find(u => u.id === winnerId);
-  const loserUser = Array.from(users.values()).find(u => u.id === loser.userId);
   
-  if (winnerUser && loserUser) {
+  if (winnerUser && loser) {
+    const loserUser = Array.from(users.values()).find(u => u.id === loser.userId);
+    if (!loserUser) return;
+
     winnerUser.gamesPlayed++;
     winnerUser.gamesWon++;
     loserUser.gamesPlayed++;
@@ -373,17 +411,17 @@ function endGame(roomId, winnerId, reason) {
     
     gameHistory.get(winnerId).push(gameData);
     gameHistory.get(loser.userId).push(loserGameData);
+
+    io.to(roomId).emit('game-ended', {
+      winner: winner.username,
+      winnerId,
+      reason,
+      stats: {
+        [winnerId]: { gamesWon: winnerUser?.gamesWon || 0, gamesPlayed: winnerUser?.gamesPlayed || 0 },
+        [loser.userId]: { gamesWon: loserUser?.gamesWon || 0, gamesPlayed: loserUser?.gamesPlayed || 0 }
+      }
+     });
   }
-  
-  io.to(roomId).emit('game-ended', {
-    winner: winner.username,
-    winnerId,
-    reason,
-    stats: {
-      [winnerId]: { gamesWon: winnerUser?.gamesWon || 0, gamesPlayed: winnerUser?.gamesPlayed || 0 },
-      [loser.userId]: { gamesWon: loserUser?.gamesWon || 0, gamesPlayed: loserUser?.gamesPlayed || 0 }
-    }
-  });
   
   // Clean up room after 5 seconds
   setTimeout(() => {
@@ -394,11 +432,6 @@ function endGame(roomId, winnerId, reason) {
 // Serve the main page
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Serve the game page
-app.get('/game.html', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'game.html'));
 });
 
 const PORT = process.env.PORT || 3003;

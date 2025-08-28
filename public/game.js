@@ -302,6 +302,9 @@ class BrainReactionGameRoom {
         const readyBtn = document.getElementById('ready-btn');
         readyBtn.disabled = false;
         readyBtn.textContent = 'Ready';
+
+        document.getElementById('player2-name').textContent = 'Waiting for opponent...';
+        this.updatePlayerStatus('player2-status', false);
         
         document.getElementById('lobby-status').textContent = 'Waiting for new opponent...';
     }
