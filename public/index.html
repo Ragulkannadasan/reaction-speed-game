@@ -3,34 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Circuit Switching Simulation</title>
-    <link rel="stylesheet" href="/style.css">
+    <title>Circuit Switching Simulator</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container" id="main-container">
-        <div class="left-panel">
-            <div id="user-info">
-                <h2>Current User</h2>
-                <p id="current-user-name">Connecting...</p>
+    <div class="container">
+        <h1>Circuit Switching Simulator</h1>
+        <div class="main-content">
+            <div class="network-panel">
+                <canvas id="network-canvas"></canvas>
             </div>
-            <div id="initiate-call">
-                <h2>Initiate a Call</h2>
-                <select id="callee-select">
-                    <option value="">Select User</option>
-                </select>
-                <button id="initiate-call-btn">Initiate Call</button>
+            <div class="controls-panel">
+                <div class="control-section">
+                    <h2>Establish a Call</h2>
+                    <div class="form-group">
+                        <label for="source-select">Source:</label>
+                        <select id="source-select"></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="destination-select">Destination:</label>
+                        <select id="destination-select"></select>
+                    </div>
+                    <button id="establish-call-btn">Establish Call</button>
+                </div>
+                <div class="info-section">
+                    <h2>Active Circuits</h2>
+                    <ul id="active-circuits-list"></ul>
+                </div>
+                <div class="info-section">
+                    <h2>Status Log</h2>
+                    <ul id="status-log"></ul>
+                </div>
             </div>
-            <div id="online-users">
-                <h2>Online Users</h2>
-                <ul id="online-users-list"></ul>
-            </div>
-        </div>
-        <div class="right-panel">
-            <h1>Network Topology</h1>
-            <canvas id="network-canvas"></canvas>
         </div>
     </div>
     <script src="/socket.io/socket.io.js"></script>
-    <script src="/app.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>

@@ -1,3 +1,4 @@
+
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -8,7 +9,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
     cors: {
-        origin: "*", // Allow all origins
+        origin: "*",
         methods: ["GET", "POST"]
     }
 });
@@ -16,153 +17,137 @@ const io = socketIo(server, {
 app.use(express.static('public'));
 
 // --- Network State ---
-const users = new Map();
-const calls = new Map(); // Use a map for easier management
 
-// Static definition of switches
+// 1. Model the network as a graph (adjacency list)
 const switches = [
-    { id: 'switch-1', name: 'Switch 1', x: 200, y: 300 },
-    { id: 'switch-2', name: 'Switch 2', x: 350, y: 150 },
-    { id: 'switch-3', name: 'Switch 3', x: 400, y: 500 },
-    { id: 'switch-4', name: 'Switch 4', x: 550, y: 250 },
-    { id: 'switch-5', name: 'Switch 5', x: 650, y: 400 },
-    { id: 'switch-6', name: 'Switch 6', x: 300, y: 600 },
-    { id: 'switch-7', name: 'Switch 7', x: 500, y: 50 },
+    { id: 'S1', name: 'S1', x: 100, y: 200 },
+    { id: 'S2', name: 'S2', x: 300, y: 100 },
+    { id: 'S3', name: 'S3', x: 300, y: 300 },
+    { id: 'S4', name: 'S4', x: 500, y: 100 },
+    { id: 'S5', name: 'S5', x: 500, y: 300 },
+    { id: 'S6', name: 'S6', x: 200, y: 400 },
+    { id: 'S7', name: 'S7', x: 400, y: 200 },
 ];
 
-// Define the connections between switches (Adjacency List)
 const switchConnections = {
-    'switch-1': ['switch-2', 'switch-3', 'switch-6'],
-    'switch-2': ['switch-1', 'switch-7', 'switch-4'],
-    'switch-3': ['switch-1', 'switch-6', 'switch-5'],
-    'switch-4': ['switch-2', 'switch-5', 'switch-7'],
-    'switch-5': ['switch-3', 'switch-4', 'switch-6'],
-    'switch-6': ['switch-1', 'switch-3', 'switch-5'],
-    'switch-7': ['switch-2', 'switch-4']
+    'S1': ['S2', 'S3'],
+    'S2': ['S1', 'S4', 'S5', 'S7'],
+    'S3': ['S1', 'S4', 'S6'],
+    'S4': ['S2', 'S3', 'S5', 'S7'],
+    'S5': ['S2', 'S4', 'S6'],
+    'S6': ['S3', 'S5'],
+    'S7': ['S2', 'S4'],
 };
 
 
-// --- Helper Functions ---
-
-function findClosestSwitch(user, allSwitches) {
-    let closestSwitch = null;
-    let minDistance = Infinity;
-    for (const s of allSwitches) {
-        const distance = Math.sqrt(Math.pow(user.x - s.x, 2) + Math.pow(user.y - s.y, 2));
-        if (distance < minDistance) {
-            minDistance = distance;
-            closestSwitch = s;
-        }
+// Edge state: free or occupied
+const edgeStates = {};
+for (const s1 in switchConnections) {
+    for (const s2 of switchConnections[s1]) {
+        // Use a consistent key for each edge pair
+        const edgeKey = [s1, s2].sort().join('-');
+        edgeStates[edgeKey] = 'free';
     }
-    return closestSwitch;
 }
 
-function findPath(startSwitchId, endSwitchId, connections) {
-    const queue = [[startSwitchId, [startSwitchId]]]; // Queue stores [currentSwitchId, pathArray]
-    const visited = new Set([startSwitchId]);
+let activeCircuits = [];
+
+// --- Helper Functions ---
+
+// BFS to find a path
+function findPath(source, destination) {
+    const queue = [[source, [source]]];
+    const visited = new Set([source]);
 
     while (queue.length > 0) {
-        const [currentSwitchId, path] = queue.shift();
+        const [current, path] = queue.shift();
 
-        if (currentSwitchId === endSwitchId) {
-            return path; // Path found
+        if (current === destination) {
+            return path;
         }
 
-        const neighbors = connections[currentSwitchId] || [];
-        for (const neighborId of neighbors) {
-            if (!visited.has(neighborId)) {
-                visited.add(neighborId);
-                const newPath = [...path, neighborId];
-                queue.push([neighborId, newPath]);
+        for (const neighbor of switchConnections[current]) {
+            if (!visited.has(neighbor)) {
+                visited.add(neighbor);
+                const newPath = [...path, neighbor];
+                queue.push([neighbor, newPath]);
             }
         }
     }
-    return null; // No path found
+    return null;
+}
+
+function isPathFree(path) {
+    for (let i = 0; i < path.length - 1; i++) {
+        const edgeKey = [path[i], path[i+1]].sort().join('-');
+        if (edgeStates[edgeKey] === 'occupied') {
+            return false;
+        }
+    }
+    return true;
+}
+
+function reservePath(path) {
+    for (let i = 0; i < path.length - 1; i++) {
+        const edgeKey = [path[i], path[i+1]].sort().join('-');
+        edgeStates[edgeKey] = 'occupied';
+    }
+}
+
+function releasePath(path) {
+    for (let i = 0; i < path.length - 1; i++) {
+        const edgeKey = [path[i], path[i+1]].sort().join('-');
+        edgeStates[edgeKey] = 'free';
+    }
 }
 
 
 function broadcastNetworkUpdate() {
     const networkState = {
-        users: Array.from(users.values()),
-        switches: switches,
-        calls: Array.from(calls.values())
+        switches,
+        switchConnections,
+        edgeStates,
+        activeCircuits
     };
     io.emit('network-update', networkState);
 }
 
+
 // --- Socket.IO Logic ---
 
 io.on('connection', (socket) => {
-    console.log(`User connected: ${socket.id}`);
-
-    // Automatically create a new user on connection
-    const userId = uuidv4();
-    const username = `User-${socket.id.substring(0, 4)}`;
-    const newUser = {
-        id: userId,
-        socketId: socket.id,
-        username,
-        x: Math.floor(Math.random() * 800) + 50,
-        y: Math.floor(Math.random() * 600) + 50,
-    };
-    users.set(userId, newUser);
-    socket.userId = userId;
-
-    socket.emit('login-success', newUser);
+    console.log(`Client connected: ${socket.id}`);
+    
+    // Send initial state
     broadcastNetworkUpdate();
 
-    socket.on('initiate-call', ({ callerId, calleeId }) => {
-        const caller = users.get(callerId);
-        const callee = users.get(calleeId);
+    socket.on('establish-call', ({ source, destination }) => {
+        const path = findPath(source, destination);
 
-        if (!caller || !callee) {
-            console.error("Caller or callee not found for call initiation");
-            return; // Exit if users don't exist
-        }
-
-        const callerSwitch = findClosestSwitch(caller, switches);
-        const calleeSwitch = findClosestSwitch(callee, switches);
-
-        if (!callerSwitch || !calleeSwitch) {
-            console.error("Could not find a switch for caller or callee");
-            return; // Exit if switches aren't found
-        }
-
-        const path = findPath(callerSwitch.id, calleeSwitch.id, switchConnections);
-
-        if (path) {
-            const callId = uuidv4();
-            const newCall = {
-                id: callId,
-                callerId,
-                calleeId,
-                path, // Array of switch IDs
-            };
-            calls.set(callId, newCall);
-            console.log(`Call initiated via path: ${path.join(' -> ')}`);
-            broadcastNetworkUpdate(); // Broadcast the new state and exit
-            return;
+        if (path && isPathFree(path)) {
+            reservePath(path);
+            const newCircuit = { id: uuidv4(), source, destination, path };
+            activeCircuits.push(newCircuit);
+            
+            socket.emit('call-established', { source, destination, path });
+            broadcastNetworkUpdate();
         } else {
-            console.log(`No path found between ${callerSwitch.id} and ${calleeSwitch.id}`);
-            // No broadcast needed, as no state changed
+            socket.emit('call-blocked', { source, destination });
+        }
+    });
+
+    socket.on('release-call', ({ circuitId }) => {
+        const circuitIndex = activeCircuits.findIndex(c => c.id === circuitId);
+        if (circuitIndex > -1) {
+            const circuit = activeCircuits[circuitIndex];
+            releasePath(circuit.path);
+            activeCircuits.splice(circuitIndex, 1);
+            broadcastNetworkUpdate();
         }
     });
 
     socket.on('disconnect', () => {
-        console.log(`User disconnected: ${socket.id}`);
-        if (socket.userId) {
-            users.delete(socket.userId);
-            
-            const callsToRemove = [];
-            for (const [callId, call] of calls.entries()) {
-                if (call.callerId === socket.userId || call.calleeId === socket.userId) {
-                    callsToRemove.push(callId);
-                }
-            }
-            callsToRemove.forEach(id => calls.delete(id));
-
-            broadcastNetworkUpdate();
-        }
+        console.log(`Client disconnected: ${socket.id}`);
     });
 });
 
