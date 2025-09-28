@@ -3,40 +3,59 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Circuit Switching Simulator</title>
+    <title>Multi-User Telephone Network</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
-        <h1>Circuit Switching Simulator</h1>
+        <h1>Multi-User Telephone Network</h1>
         <div class="main-content">
             <div class="network-panel">
                 <canvas id="network-canvas"></canvas>
             </div>
             <div class="controls-panel">
+                <div class="user-info-section">
+                    <h2>Your Status</h2>
+                    <p id="user-id-display">Your ID: Not Assigned</p>
+                    <p id="switch-id-display">Connected to Switch: N/A</p>
+                </div>
+
                 <div class="control-section">
-                    <h2>Establish a Call</h2>
+                    <h2>Make a Call</h2>
                     <div class="form-group">
-                        <label for="source-select">Source:</label>
-                        <select id="source-select"></select>
+                        <label for="receiver-id-input">Enter User ID to Call:</label>
+                        <input type="text" id="receiver-id-input" placeholder="e.g., U1234">
                     </div>
-                    <div class="form-group">
-                        <label for="destination-select">Destination:</label>
-                        <select id="destination-select"></select>
-                    </div>
-                    <button id="establish-call-btn">Establish Call</button>
+                    <button id="call-btn">Call</button>
                 </div>
+
                 <div class="info-section">
-                    <h2>Active Circuits</h2>
-                    <ul id="active-circuits-list"></ul>
+                    <h2>Active Call</h2>
+                    <div id="active-call-display">No active call.</div>
                 </div>
+
                 <div class="info-section">
                     <h2>Status Log</h2>
                     <ul id="status-log"></ul>
                 </div>
+                 <div class="info-section">
+                    <h2>Online Users</h2>
+                    <ul id="online-users-list"></ul>
+                </div>
             </div>
         </div>
     </div>
+
+    <div id="incoming-call-popup" class="popup-container" style="display:none;">
+        <div class="popup-content">
+            <h3 id="incoming-call-from">Incoming Call from...</h3>
+            <div class="popup-buttons">
+                <button id="accept-call-btn">Accept</button>
+                <button id="reject-call-btn">Reject</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/socket.io/socket.io.js"></script>
     <script src="app.js"></script>
 </body>
