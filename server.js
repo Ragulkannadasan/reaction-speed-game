@@ -1,440 +1,177 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const cors = require('cors');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const { v4: uuidv4 } = require('uuid');
 const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
+    cors: {
+        origin: "*", // Allow all origins
+        methods: ["GET", "POST"]
+    }
 });
 
-// Middleware
-app.use(cors());
-app.use(express.json());
 app.use(express.static('public'));
 
-// In-memory storage (replace with database in production)
+// --- Network State ---
 const users = new Map();
-const activeUsers = new Map();
-const gameRooms = new Map();
-const gameHistory = new Map();
+const calls = new Map(); // Use a map for easier management
 
-// JWT Secret
-const JWT_SECRET = 'your-secret-key-change-in-production';
+// Static definition of switches
+const switches = [
+    { id: 'switch-1', name: 'Switch 1', x: 200, y: 300 },
+    { id: 'switch-2', name: 'Switch 2', x: 350, y: 150 },
+    { id: 'switch-3', name: 'Switch 3', x: 400, y: 500 },
+    { id: 'switch-4', name: 'Switch 4', x: 550, y: 250 },
+    { id: 'switch-5', name: 'Switch 5', x: 650, y: 400 },
+    { id: 'switch-6', name: 'Switch 6', x: 300, y: 600 },
+    { id: 'switch-7', name: 'Switch 7', x: 500, y: 50 },
+];
 
-// Auth Middleware
-const protect = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) {
-    return res.status(401).json({ error: 'Not authorized, no token' });
-  }
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (error) {
-    res.status(401).json({ error: 'Not authorized, token failed' });
-  }
+// Define the connections between switches (Adjacency List)
+const switchConnections = {
+    'switch-1': ['switch-2', 'switch-3', 'switch-6'],
+    'switch-2': ['switch-1', 'switch-7', 'switch-4'],
+    'switch-3': ['switch-1', 'switch-6', 'switch-5'],
+    'switch-4': ['switch-2', 'switch-5', 'switch-7'],
+    'switch-5': ['switch-3', 'switch-4', 'switch-6'],
+    'switch-6': ['switch-1', 'switch-3', 'switch-5'],
+    'switch-7': ['switch-2', 'switch-4']
 };
 
 
-// Authentication endpoints
-app.post('/api/register', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password required' });
+// --- Helper Functions ---
+
+function findClosestSwitch(user, allSwitches) {
+    let closestSwitch = null;
+    let minDistance = Infinity;
+    for (const s of allSwitches) {
+        const distance = Math.sqrt(Math.pow(user.x - s.x, 2) + Math.pow(user.y - s.y, 2));
+        if (distance < minDistance) {
+            minDistance = distance;
+            closestSwitch = s;
+        }
     }
-    
-    if (users.has(username)) {
-      return res.status(400).json({ error: 'User already exists' });
+    return closestSwitch;
+}
+
+function findPath(startSwitchId, endSwitchId, connections) {
+    const queue = [[startSwitchId, [startSwitchId]]]; // Queue stores [currentSwitchId, pathArray]
+    const visited = new Set([startSwitchId]);
+
+    while (queue.length > 0) {
+        const [currentSwitchId, path] = queue.shift();
+
+        if (currentSwitchId === endSwitchId) {
+            return path; // Path found
+        }
+
+        const neighbors = connections[currentSwitchId] || [];
+        for (const neighborId of neighbors) {
+            if (!visited.has(neighborId)) {
+                visited.add(neighborId);
+                const newPath = [...path, neighborId];
+                queue.push([neighborId, newPath]);
+            }
+        }
     }
-    
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const userId = uuidv4();
-    
-    users.set(username, {
-      id: userId,
-      username,
-      password: hashedPassword,
-      gamesPlayed: 0,
-      gamesWon: 0,
-      gamesLost: 0,
-      createdAt: new Date()
-    });
-    
-    gameHistory.set(userId, []);
-    
-    const token = jwt.sign({ userId, username }, JWT_SECRET, { expiresIn: '1h' });
-    res.json({ token, userId, username });
-  } catch (error) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-app.post('/api/login', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password required' });
-    }
-    
-    const user = users.get(username);
-    if (!user) {
-      return res.status(400).json({ error: 'Invalid credentials' });
-    }
-    
-    const validPassword = await bcrypt.compare(password, user.password);
-    if (!validPassword) {
-      return res.status(400).json({ error: 'Invalid credentials' });
-    }
-    
-    const token = jwt.sign({ userId: user.id, username }, JWT_SECRET, { expiresIn: '1h' });
-    res.json({ token, userId: user.id, username });
-  } catch (error) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-app.get('/api/me', protect, (req, res) => {
-  const user = Array.from(users.values()).find(u => u.id === req.user.userId);
-  if (!user) {
-    return res.status(404).json({ error: 'User not found' });
-  }
-  res.json({
-    userId: user.id,
-    username: user.username,
-  });
-});
+    return null; // No path found
+}
 
 
-app.get('/api/users', (req, res) => {
-  const userList = Array.from(users.values()).map(user => ({
-    id: user.id,
-    username: user.username,
-    gamesPlayed: user.gamesPlayed,
-    gamesWon: user.gamesWon,
-    gamesLost: user.gamesLost,
-    online: activeUsers.has(user.id)
-  }));
-  res.json(userList);
-});
+function broadcastNetworkUpdate() {
+    const networkState = {
+        users: Array.from(users.values()),
+        switches: switches,
+        calls: Array.from(calls.values())
+    };
+    io.emit('network-update', networkState);
+}
 
-app.get('/api/user/:userId/stats', (req, res) => {
-  const { userId } = req.params;
-  const user = Array.from(users.values()).find(u => u.id === userId);
-  
-  if (!user) {
-    return res.status(404).json({ error: 'User not found' });
-  }
-  
-  const history = gameHistory.get(userId) || [];
-  res.json({
-    username: user.username,
-    gamesPlayed: user.gamesPlayed,
-    gamesWon: user.gamesWon,
-    gamesLost: user.gamesLost,
-    winRate: user.gamesPlayed > 0 ? (user.gamesWon / user.gamesPlayed * 100).toFixed(1) : 0,
-    history: history.slice(-10) // Last 10 games
-  });
-});
+// --- Socket.IO Logic ---
 
-// Socket.io connection handling
 io.on('connection', (socket) => {
-  console.log('User connected:', socket.id);
-  
-  socket.on('user-login', (data) => {
-    try {
-      const { token } = data;
-      if (!token) return;
+    console.log(`User connected: ${socket.id}`);
 
-      const decoded = jwt.verify(token, JWT_SECRET);
-      const user = Array.from(users.values()).find(u => u.id === decoded.userId);
-
-      if(user){
-        activeUsers.set(user.id, {
+    // Automatically create a new user on connection
+    const userId = uuidv4();
+    const username = `User-${socket.id.substring(0, 4)}`;
+    const newUser = {
+        id: userId,
         socketId: socket.id,
-        username: user.username,
-        userId: user.id,
-        status: 'online'
-      });
-      socket.userId = user.id;
-      
-      // Broadcast updated user list
-      io.emit('users-update', Array.from(activeUsers.values()));
-      }
-    } catch (error) {
-      console.error("Login failed", error);
-    }
-  });
-  
-  socket.on('send-game-request', (data) => {
-    const { targetUserId, fromUser } = data;
-    const targetUser = activeUsers.get(targetUserId);
-    
-    if (targetUser) {
-      io.to(targetUser.socketId).emit('game-request-received', {
-        from: fromUser,
-        requestId: uuidv4()
-      });
-    }
-  });
-  
-  socket.on('accept-game-request', (data) => {
-    const { fromUserId, toUser } = data;
-    const fromUser = activeUsers.get(fromUserId);
-    
-    if (fromUser) {
-      const roomId = uuidv4();
-      
-      // Create game room
-      gameRooms.set(roomId, {
-        id: roomId,
-        players: [
-          { userId: fromUserId, socketId: fromUser.socketId, username: fromUser.username, ready: false },
-          { userId: socket.userId, socketId: socket.id, username: toUser.username, ready: false }
-        ],
-        status: 'waiting',
-        startTime: null,
-        colorChangeTime: null,
-        winner: null
-      });
-      
-      // Join both players to room
-      socket.join(roomId);
-      io.sockets.sockets.get(fromUser.socketId)?.join(roomId);
-      
-      // Notify both players
-      io.to(roomId).emit('game-room-joined', {
-        roomId,
-        players: gameRooms.get(roomId).players
-      });
-    }
-  });
-  
-  socket.on('reject-game-request', (data) => {
-    const { fromUserId } = data;
-    const fromUser = activeUsers.get(fromUserId);
-    
-    if (fromUser) {
-      io.to(fromUser.socketId).emit('game-request-rejected');
-    }
-  });
-  
-  socket.on('player-ready', (data) => {
-    const { roomId } = data;
-    const room = gameRooms.get(roomId);
-    
-    if (room) {
-      const player = room.players.find(p => p.socketId === socket.id);
-      if (player) {
-        player.ready = true;
-        
-        // Check if both players are ready
-        const allReady = room.players.every(p => p.ready);
-        
-        io.to(roomId).emit('player-ready-update', {
-          players: room.players,
-          allReady
-        });
-        
-        if (allReady) {
-          startGame(roomId);
+        username,
+        x: Math.floor(Math.random() * 800) + 50,
+        y: Math.floor(Math.random() * 600) + 50,
+    };
+    users.set(userId, newUser);
+    socket.userId = userId;
+
+    socket.emit('login-success', newUser);
+    broadcastNetworkUpdate();
+
+    socket.on('initiate-call', ({ callerId, calleeId }) => {
+        const caller = users.get(callerId);
+        const callee = users.get(calleeId);
+
+        if (!caller || !callee) {
+            console.error("Caller or callee not found for call initiation");
+            return; // Exit if users don't exist
         }
-      }
-    }
-  });
-  
-  socket.on('button-click', (data) => {
-    const { roomId, clickTime } = data;
-    const room = gameRooms.get(roomId);
-    
-    if (room && room.status === 'playing') {
-      const player = room.players.find(p => p.socketId === socket.id);
-      
-      if (room.colorChangeTime) {
-        // Color has changed - valid click
-        if (clickTime >= room.colorChangeTime) {
-          // Player clicked after color change - they win
-          endGame(roomId, player.userId, 'valid_click');
+
+        const callerSwitch = findClosestSwitch(caller, switches);
+        const calleeSwitch = findClosestSwitch(callee, switches);
+
+        if (!callerSwitch || !calleeSwitch) {
+            console.error("Could not find a switch for caller or callee");
+            return; // Exit if switches aren't found
+        }
+
+        const path = findPath(callerSwitch.id, calleeSwitch.id, switchConnections);
+
+        if (path) {
+            const callId = uuidv4();
+            const newCall = {
+                id: callId,
+                callerId,
+                calleeId,
+                path, // Array of switch IDs
+            };
+            calls.set(callId, newCall);
+            console.log(`Call initiated via path: ${path.join(' -> ')}`);
+            broadcastNetworkUpdate(); // Broadcast the new state and exit
+            return;
         } else {
-          // Player clicked before color change - they lose
-          const opponent = room.players.find(p => p.socketId !== socket.id);
-          endGame(roomId, opponent.userId, 'early_click');
+            console.log(`No path found between ${callerSwitch.id} and ${calleeSwitch.id}`);
+            // No broadcast needed, as no state changed
         }
-      } else {
-        // Color hasn't changed yet - player loses
-        const opponent = room.players.find(p => p.socketId !== socket.id);
-        endGame(roomId, opponent.userId, 'early_click');
-      }
-    }
-  });
-  
-  socket.on('join-room', (data) => {
-    const { roomId, user } = data;
-    const room = gameRooms.get(roomId);
-    
-    if (room) {
-      socket.join(roomId);
-      socket.emit('room-joined', {
-        roomId,
-        players: room.players
-      });
-    } else {
-      socket.emit('room-not-found');
-    }
-  });
-  
-  socket.on('leave-room', (data) => {
-    const { roomId } = data;
-    socket.leave(roomId);
-    
-    // Clean up room if empty
-    const room = gameRooms.get(roomId);
-    if (room) {
-      const remainingPlayers = room.players.filter(p => p.socketId !== socket.id);
-      if (remainingPlayers.length === 0) {
-        gameRooms.delete(roomId);
-      } else {
-        room.players = remainingPlayers;
-        io.to(roomId).emit('opponent-disconnected');
-      }
-    }
-  });
-  
-  socket.on('forfeit-game', (data) => {
-    const { roomId } = data;
-    const room = gameRooms.get(roomId);
-    
-    if (room) {
-      const player = room.players.find(p => p.socketId === socket.id);
-      const opponent = room.players.find(p => p.socketId !== socket.id);
-      
-      if (opponent) {
-        endGame(roomId, opponent.userId, 'forfeit');
-      }
-    }
-  });
-  
-  socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
-    
-    if (socket.userId) {
-      activeUsers.delete(socket.userId);
-      io.emit('users-update', Array.from(activeUsers.values()));
-    }
-    
-    // Handle game room cleanup if player disconnects during game
-    for (const [roomId, room] of gameRooms.entries()) {
-      const playerIndex = room.players.findIndex(p => p.socketId === socket.id);
-      if (playerIndex !== -1) {
-        const opponent = room.players.find(p => p.socketId !== socket.id);
-        if (opponent) {
-          io.to(opponent.socketId).emit('opponent-disconnected');
+    });
+
+    socket.on('disconnect', () => {
+        console.log(`User disconnected: ${socket.id}`);
+        if (socket.userId) {
+            users.delete(socket.userId);
+            
+            const callsToRemove = [];
+            for (const [callId, call] of calls.entries()) {
+                if (call.callerId === socket.userId || call.calleeId === socket.userId) {
+                    callsToRemove.push(callId);
+                }
+            }
+            callsToRemove.forEach(id => calls.delete(id));
+
+            broadcastNetworkUpdate();
         }
-        gameRooms.delete(roomId);
-        break;
-      }
-    }
-  });
+    });
 });
 
-function startGame(roomId) {
-  const room = gameRooms.get(roomId);
-  if (!room) return;
-  
-  room.status = 'playing';
-  room.startTime = Date.now();
-  
-  // Random delay between 1-5 seconds for color change
-  const delay = Math.random() * 4000 + 1000; // 1000-5000ms
-  
-  io.to(roomId).emit('game-started');
-  
-  setTimeout(() => {
-    if (gameRooms.has(roomId)) {
-      room.colorChangeTime = Date.now();
-      io.to(roomId).emit('color-change', { changeTime: room.colorChangeTime });
-    }
-  }, delay);
-}
 
-function endGame(roomId, winnerId, reason) {
-  const room = gameRooms.get(roomId);
-  if (!room || room.status === 'finished') return;
-  
-  room.status = 'finished';
-  room.winner = winnerId;
-  
-  const winner = room.players.find(p => p.userId === winnerId);
-  const loser = room.players.find(p => p.userId !== winnerId);
-  
-  // Update user stats
-  const winnerUser = Array.from(users.values()).find(u => u.id === winnerId);
-  
-  if (winnerUser && loser) {
-    const loserUser = Array.from(users.values()).find(u => u.id === loser.userId);
-    if (!loserUser) return;
-
-    winnerUser.gamesPlayed++;
-    winnerUser.gamesWon++;
-    loserUser.gamesPlayed++;
-    loserUser.gamesLost++;
-    
-    // Add to game history
-    const gameData = {
-      gameId: roomId,
-      date: new Date(),
-      opponent: loser.username,
-      result: 'win',
-      reason
-    };
-    
-    const loserGameData = {
-      gameId: roomId,
-      date: new Date(),
-      opponent: winner.username,
-      result: 'loss',
-      reason
-    };
-    
-    gameHistory.get(winnerId).push(gameData);
-    gameHistory.get(loser.userId).push(loserGameData);
-
-    io.to(roomId).emit('game-ended', {
-      winner: winner.username,
-      winnerId,
-      reason,
-      stats: {
-        [winnerId]: { gamesWon: winnerUser?.gamesWon || 0, gamesPlayed: winnerUser?.gamesPlayed || 0 },
-        [loser.userId]: { gamesWon: loserUser?.gamesWon || 0, gamesPlayed: loserUser?.gamesPlayed || 0 }
-      }
-     });
-  }
-  
-  // Clean up room after 5 seconds
-  setTimeout(() => {
-    gameRooms.delete(roomId);
-  }, 5000);
-}
-
-// Serve the main page
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 const PORT = process.env.PORT || 3003;
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });
