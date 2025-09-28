@@ -88,6 +88,15 @@ function getUserNodePosition(userId, switchId) {
     return { x, y };
 }
 
+function isEdgeInPath(path, s1, s2) {
+    for (let i = 0; i < path.length - 1; i++) {
+        if ((path[i] === s1 && path[i+1] === s2) || (path[i] === s2 && path[i+1] === s1)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function drawNetwork() {
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -102,12 +111,11 @@ function drawNetwork() {
                 const start = switches.find(s => s.id === s1);
                 const end = switches.find(s => s.id === s2);
                 if (start && end) {
-                    const edgeKey = [s1, s2].sort().join('-');
                     ctx.beginPath();
                     ctx.moveTo(start.x, start.y);
                     ctx.lineTo(end.x, end.y);
                     
-                    const isEdgeInActivePath = myActiveCircuit && myActiveCircuit.path.join('-').includes(edgeKey);
+                    const isEdgeInActivePath = myActiveCircuit && isEdgeInPath(myActiveCircuit.path, s1, s2);
                     ctx.strokeStyle = isEdgeInActivePath ? '#28a745' : '#555';
                     ctx.lineWidth = isEdgeInActivePath ? 3 : 2;
                     ctx.stroke();
@@ -127,7 +135,9 @@ function drawNetwork() {
             ctx.beginPath();
             ctx.moveTo(userPos.x, userPos.y);
             ctx.lineTo(switchPos.x, switchPos.y);
-            const isUserInActiveCall = myActiveCircuit && (myActiveCircuit.callerId === userId || myActiveCircuit.receiverId === userId);
+            const isUserInActiveCall = myActiveCircuit && 
+                ((myActiveCircuit.callerId === userId && myActiveCircuit.path[0] === switchId) || 
+                 (myActiveCircuit.receiverId === userId && myActiveCircuit.path[myActiveCircuit.path.length - 1] === switchId));
             ctx.strokeStyle = isUserInActiveCall ? '#28a745' : '#aaa';
             ctx.lineWidth = isUserInActiveCall ? 3 : 1;
             ctx.setLineDash(isUserInActiveCall ? [] : [5, 5]);
