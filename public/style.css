@@ -66,13 +66,14 @@ label {
     color: #bbb;
 }
 
-select {
+select, input[type="text"] {
     width: 100%;
     padding: 8px;
     border-radius: 3px;
     border: 1px solid #555;
     background-color: #333;
     color: #e0e0e0;
+    box-sizing: border-box;
 }
 
 button {
