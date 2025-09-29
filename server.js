@@ -117,7 +117,7 @@ function broadcastNetworkUpdate() {
 io.on('connection', (socket) => {
     socket.on('register', (userId) => {
         const assignedSwitch = switches[Math.floor(Math.random() * switches.length)].id;
-        users[userId] = { socketId: socket.id, switchId: assignedSwitch };
+        users[userId] = { socketId: socket.id, switchId: assignedSwitch, isBusy: false };
         socket.emit('registered', { userId, switchId: assignedSwitch });
         console.log(`User ${userId} registered, connected to ${assignedSwitch}`);
         broadcastNetworkUpdate();
@@ -126,6 +126,9 @@ io.on('connection', (socket) => {
     socket.on('call-user', ({ callerId, receiverId }) => {
         if (!users[receiverId]) {
             return socket.emit('call-failed', { message: `User ${receiverId} is not online.` });
+        }
+        if (users[receiverId].isBusy) {
+            return socket.emit('call-failed', { message: `User ${receiverId} is busy.` });
         }
 
         const caller = users[callerId];
@@ -149,6 +152,8 @@ io.on('connection', (socket) => {
             reservePath(path);
             const newCircuit = { id: uuidv4(), callerId, receiverId, path };
             activeCircuits.push(newCircuit);
+            users[callerId].isBusy = true;
+            users[receiverId].isBusy = true;
             delete pendingCalls[receiverId];
 
             const callerSocket = users[callerId]?.socketId;
@@ -178,6 +183,9 @@ io.on('connection', (socket) => {
             releasePath(circuit.path);
             activeCircuits.splice(circuitIndex, 1);
 
+            if (users[circuit.callerId]) users[circuit.callerId].isBusy = false;
+            if (users[circuit.receiverId]) users[circuit.receiverId].isBusy = false;
+
             const callerSocket = users[circuit.callerId]?.socketId;
             const receiverSocket = users[circuit.receiverId]?.socketId;
 
@@ -199,6 +207,7 @@ io.on('connection', (socket) => {
                  releasePath(circuit.path);
                  activeCircuits.splice(circuitIndex, 1);
                  const otherUserId = circuit.callerId === userId ? circuit.receiverId : circuit.callerId;
+                 if (users[otherUserId]) users[otherUserId].isBusy = false;
                  const otherUserSocket = users[otherUserId]?.socketId;
                  if(otherUserSocket) io.to(otherUserSocket).emit('call-ended', { message: `User ${userId} disconnected.` });
             }

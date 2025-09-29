@@ -101,9 +101,6 @@ function drawNetwork() {
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Get the active circuit for the current user to highlight the full path
-    const myActiveCircuit = activeCircuits.find(c => c.callerId === myUserId || c.receiverId === myUserId);
-
     // Draw switch-to-switch edges
     for (const s1 in switchConnections) {
         for (const s2 of switchConnections[s1]) {
@@ -114,8 +111,8 @@ function drawNetwork() {
                     ctx.beginPath();
                     ctx.moveTo(start.x, start.y);
                     ctx.lineTo(end.x, end.y);
-                    
-                    const isEdgeInActivePath = myActiveCircuit && isEdgeInPath(myActiveCircuit.path, s1, s2);
+
+                    const isEdgeInActivePath = activeCircuits.some(c => isEdgeInPath(c.path, s1, s2));
                     ctx.strokeStyle = isEdgeInActivePath ? '#28a745' : '#555';
                     ctx.lineWidth = isEdgeInActivePath ? 3 : 2;
                     ctx.stroke();
@@ -135,9 +132,9 @@ function drawNetwork() {
             ctx.beginPath();
             ctx.moveTo(userPos.x, userPos.y);
             ctx.lineTo(switchPos.x, switchPos.y);
-            const isUserInActiveCall = myActiveCircuit && 
-                ((myActiveCircuit.callerId === userId && myActiveCircuit.path[0] === switchId) || 
-                 (myActiveCircuit.receiverId === userId && myActiveCircuit.path[myActiveCircuit.path.length - 1] === switchId));
+            const isUserInActiveCall = activeCircuits.some(c => 
+                (c.callerId === userId && c.path[0] === switchId) || 
+                (c.receiverId === userId && c.path[c.path.length - 1] === switchId));
             ctx.strokeStyle = isUserInActiveCall ? '#28a745' : '#aaa';
             ctx.lineWidth = isUserInActiveCall ? 3 : 1;
             ctx.setLineDash(isUserInActiveCall ? [] : [5, 5]);
@@ -225,6 +222,11 @@ socket.on('network-update', (data) => {
 });
 
 socket.on('incoming-call', ({ callerId }) => {
+    const myActiveCircuit = activeCircuits.find(c => c.callerId === myUserId || c.receiverId === myUserId);
+    if (myActiveCircuit) {
+        socket.emit('call-rejected', { callerId, receiverId: myUserId });
+        return;
+    }
     pendingCallerId = callerId;
     incomingCallFrom.textContent = `Incoming Call from ${callerId}`;
     incomingCallPopup.style.display = 'flex';
