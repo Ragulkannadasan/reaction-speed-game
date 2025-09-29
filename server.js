@@ -66,8 +66,11 @@ function findPath(source, destination) {
         if (current === destination) return path;
         for (const neighbor of switchConnections[current]) {
             if (!visited.has(neighbor)) {
-                visited.add(neighbor);
-                queue.push([neighbor, [...path, neighbor]]);
+                const edgeKey = [current, neighbor].sort().join('-');
+                if (edgeStates[edgeKey] === 'free') {
+                    visited.add(neighbor);
+                    queue.push([neighbor, [...path, neighbor]]);
+                }
             }
         }
     }
@@ -135,7 +138,7 @@ io.on('connection', (socket) => {
         const receiver = users[receiverId];
         const path = findPath(caller.switchId, receiver.switchId);
 
-        if (path && isPathFree(path)) {
+        if (path) {
             pendingCalls[receiverId] = { callerId, path };
             io.to(receiver.socketId).emit('incoming-call', { callerId });
         } else {
